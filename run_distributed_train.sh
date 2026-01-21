@@ -3,7 +3,7 @@
 # 使用PyTorch的DistributedDataParallel进行多GPU训练
 
 # 设置环境变量
-export CUDA_VISIBLE_DEVICES=0,1,2,3  # 使用GPU 0-3，根据你的GPU数量调整
+export CUDA_VISIBLE_DEVICES=0,1  # 使用2个GPU，避免内存不足
 export MASTER_ADDR=localhost
 export MASTER_PORT=29500
 
@@ -14,7 +14,7 @@ export BATCH_SIZE=512  # 总batch size
 echo "=================================="
 echo "多GPU分布式训练"
 echo "=================================="
-echo "GPU数量: 4"
+echo "GPU数量: 2"
 echo "Batch size: $BATCH_SIZE"
 echo "Master地址: $MASTER_ADDR:$MASTER_PORT"
 echo "=================================="
@@ -24,7 +24,7 @@ echo "=================================="
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 python -m torch.distributed.launch \
-    --nproc_per_node=4 \
+    --nproc_per_node=2 \
     --nnodes=1 \
     --node_rank=0 \
     --master_addr=$MASTER_ADDR \

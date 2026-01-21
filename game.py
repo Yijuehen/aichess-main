@@ -209,7 +209,7 @@ def get_legal_moves(state_deque, current_player_color):
                     for toX in range(x - 1, -1, -1):
                         # 前面是先前位置，后面是移动后的位置
                         # 这里通过中断for循环实现了车的走子，车不能越过子
-                        m = str(y) + str(x) + str(toY) + str(toX)
+                        m = str(y) + str(x) + str(toY) + str(toX)#走棋指令编码（原位置 (y,x) → 目标位置 (toY,toX)）
                         if state_list[toY][toX] != '一一':
                             if '红' in state_list[toY][toX]:
                                 if change_state(state_list, m) != old_state_list:

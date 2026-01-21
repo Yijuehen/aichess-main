@@ -102,7 +102,6 @@ class PolicyValueNet:
             # 初始化分布式环境
             local_rank = CONFIG['distributed']['local_rank']
             self.device = torch.device(f'cuda:{local_rank}')
-            torch.cuda.set_device(self.device)
 
             # 初始化进程组（如果还未初始化）
             if not dist.is_initialized():
@@ -112,6 +111,9 @@ class PolicyValueNet:
                     rank=CONFIG['distributed']['rank'],
                     world_size=CONFIG['distributed']['world_size']
                 )
+
+            # 清理GPU缓存，避免内存不足
+            torch.cuda.empty_cache()
 
             # 创建模型并移动到对应GPU
             self.policy_value_net = Net().to(self.device)

@@ -7,9 +7,8 @@ export CUDA_VISIBLE_DEVICES=0,1,2,3  # 使用GPU 0-3，根据你的GPU数量调�
 export MASTER_ADDR=localhost
 export MASTER_PORT=29500
 
-# 设置分布式训练环境变量
+# 设置分布式训练环境变量（torch.distributed.launch会自动设置RANK、LOCAL_RANK等）
 export DISTIBUTED_TRAINING=true
-export WORLD_SIZE=4  # GPU数量
 export BATCH_SIZE=512  # 总batch size
 
 echo "=================================="

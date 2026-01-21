@@ -28,10 +28,13 @@ CONFIG = {
     'distributed': {
         'enabled': bool(os.getenv('DISTIBUTED_TRAINING', 'False').lower() == 'true'),
         'backend': 'nccl',  # nccl for NVIDIA GPUs
-        'world_size': int(os.getenv('WORLD_SIZE', torch.cuda.device_count())),
-        'rank': int(os.getenv('RANK', 0)),
-        'local_rank': int(os.getenv('LOCAL_RANK', 0)),
-        'init_method': os.getenv('MASTER_ADDR', 'tcp://localhost:29500'),
-        'master_port': int(os.getenv('MASTER_PORT', 29500)),
+        # torch.distributed.launch 会自动设置这些环境变量
+        'world_size': int(os.getenv('WORLD_SIZE', os.getenv('GROUP_WORLD_SIZE', str(torch.cuda.device_count())))),
+        'rank': int(os.getenv('RANK', os.getenv('GROUP_RANK', '0'))),  # 兼容 torch.distributed.launch
+        'local_rank': int(os.getenv('LOCAL_RANK', '0')),  # torch.distributed.launch 自动设置
+        # 构造完整的 init_method URL
+        'master_addr': os.getenv('MASTER_ADDR', 'localhost'),
+        'master_port': int(os.getenv('MASTER_PORT', '29500')),
+        'init_method': f"tcp://{os.getenv('MASTER_ADDR', 'localhost')}:{os.getenv('MASTER_PORT', '29500')}",
     }
 }

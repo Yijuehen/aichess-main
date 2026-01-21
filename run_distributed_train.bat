@@ -7,9 +7,8 @@ set CUDA_VISIBLE_DEVICES=0,1,2,3
 set MASTER_ADDR=localhost
 set MASTER_PORT=29500
 
-REM 设置分布式训练环境变量
+REM 设置分布式训练环境变量（torch.distributed.launch会自动设置RANK、LOCAL_RANK等）
 set DISTIBUTED_TRAINING=true
-set WORLD_SIZE=4
 set BATCH_SIZE=512
 
 echo ==================================

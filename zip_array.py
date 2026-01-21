@@ -41,14 +41,14 @@ def recovery_state_mcts_prob(tuple):
     mcts_prob = mcts_prob.reshape(2086)
     return state,mcts_prob,winner
 
-def zip_array(array, data=0.):  # 压缩成稀疏数组
+def zip_array(array, data=0.):  # 压缩成稀疏数组，返回list
     zip_res = []
     zip_res.append([len(array), len(array[0])])
     for i in range(len(array)):
         for j in range(len(array[0])):
             if array[i][j] != data:
                 zip_res.append([i, j, array[i][j]])
-    return np.array(zip_res)
+    return zip_res  # 直接返回 list，避免 dtype=object
 
 
 def recovery_array(array, data=0.):  # 恢复数组

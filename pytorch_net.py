@@ -88,14 +88,15 @@ class Net(nn.Module):
 # 策略值网络 - Optimized for Inference (faster, no training needed)
 class PolicyValueNet:
 
-    def __init__(self, model_file=None, use_gpu=False, device='cpu'):
-        self.use_gpu = use_gpu
-        self.device = device
+    def __init__(self, model_file=None, use_gpu=None, device=None):
+        # 使用CONFIG配置作为默认值
+        self.use_gpu = CONFIG['use_gpu'] if use_gpu is None else use_gpu
+        self.device = CONFIG['device'] if device is None else device
         self.policy_value_net = Net().to(self.device)
 
         # Load model if provided
         if model_file:
-            self.policy_value_net.load_state_dict(torch.load(model_file, weights_only=False))
+            self.policy_value_net.load_state_dict(torch.load(model_file, weights_only=False, map_location=self.device))
 
         # CRITICAL OPTIMIZATIONS FOR INFERENCE:
         # 1. Set to eval mode (disables dropout, batchnorm updates, etc.)
@@ -197,6 +198,10 @@ class PolicyValueNet:
                 torch.sum(torch.exp(log_act_probs) * log_act_probs, dim=1)
             )
         return loss.detach().cpu().numpy(), entropy.detach().cpu().numpy()
+
+    # 初始化优化器
+    def init_optimizer(self):
+        self.optimizer = torch.optim.Adam(self.policy_value_net.parameters(), lr=1e-3)
 
 
 if __name__ == '__main__':

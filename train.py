@@ -52,14 +52,20 @@ class TrainPipeline:
         if init_model:
             try:
                 self.policy_value_net = PolicyValueNet(model_file=init_model)
-                print('已加载上次最终模型')
+                print(f'已加载上次最终模型，使用设备: {self.policy_value_net.device}')
             except:
                 # 从零开始训练
                 print('模型路径不存在，从零开始训练')
                 self.policy_value_net = PolicyValueNet()
+                print(f'使用设备: {self.policy_value_net.device}')
         else:
             print('从零开始训练')
             self.policy_value_net = PolicyValueNet()
+            print(f'使用设备: {self.policy_value_net.device}')
+
+        # 初始化优化器
+        if CONFIG['use_frame'] == 'pytorch':
+            self.policy_value_net.init_optimizer()
 
 
     def policy_evaluate(self, n_games=10):

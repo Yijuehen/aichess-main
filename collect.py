@@ -56,10 +56,10 @@ class CollectPipeline:
             print('暂不支持所选框架')
         try:
             self.policy_value_net = PolicyValueNet(model_file=model_path)
-            print('已加载最新模型')
+            print(f'已加载最新模型，使用设备: {self.policy_value_net.device}')
         except:
             self.policy_value_net = PolicyValueNet()
-            print('已加载初始模型')
+            print(f'已加载初始模型，使用设备: {self.policy_value_net.device}')
         self.mcts_player = MCTSPlayer(self.policy_value_net.policy_value_fn,
                                       c_puct=self.c_puct,
                                       n_playout=self.n_playout,

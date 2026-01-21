@@ -1,3 +1,5 @@
+import torch
+
 CONFIG = {
     'kill_action': 30,      #和棋回合数
     'dirichlet': 0.2,       # 国际象棋，0.3；日本将棋，0.15；围棋，0.03
@@ -17,4 +19,7 @@ CONFIG = {
     'redis_host': 'localhost',
     'redis_port': 6379,
     'redis_db': 0,
+    # GPU配置
+    'use_gpu': True,  # 是否使用GPU
+    'device': 'cuda' if torch.cuda.is_available() else 'cpu',  # 自动检测GPU
 }

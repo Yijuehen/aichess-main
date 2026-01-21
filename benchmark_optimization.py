@@ -17,8 +17,9 @@ print("=" * 60)
 
 # Load optimized model
 print("\nLoading optimized model...")
-net = PolicyValueNet(model_file='models/current_policy100.pkl', use_gpu=False, device='cpu')
+net = PolicyValueNet(model_file='models/current_policy100.pkl')
 print(f"[+] Model loaded")
+print(f"  - Device: {net.device}")
 print(f"  - Compiled: {net.compiled if hasattr(net, 'compiled') else 'N/A'}")
 
 # Create dummy board state

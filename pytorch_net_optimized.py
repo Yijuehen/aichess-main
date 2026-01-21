@@ -84,14 +84,15 @@ class Net(nn.Module):
 # 策略值网络 - Optimized for Inference
 class PolicyValueNet:
 
-    def __init__(self, model_file=None, use_gpu=False, device='cpu'):
-        self.use_gpu = use_gpu
-        self.device = device
+    def __init__(self, model_file=None, use_gpu=None, device=None):
+        # 使用CONFIG配置作为默认值
+        self.use_gpu = CONFIG['use_gpu'] if use_gpu is None else use_gpu
+        self.device = CONFIG['device'] if device is None else device
         self.policy_value_net = Net().to(self.device)
 
         # Load model if provided
         if model_file:
-            self.policy_value_net.load_state_dict(torch.load(model_file, weights_only=False))
+            self.policy_value_net.load_state_dict(torch.load(model_file, weights_only=False, map_location=self.device))
 
         # CRITICAL: Set to eval mode and optimize for inference
         self.policy_value_net.eval()
@@ -200,7 +201,7 @@ if __name__ == '__main__':
 
     # Test optimized network
     print("Testing optimized network...")
-    net = PolicyValueNet(model_file='models/current_policy100.pkl', use_gpu=False, device='cpu')
+    net = PolicyValueNet(model_file='models/current_policy100.pkl')
 
     # Test inference speed
     dummy_board_state = np.zeros((10, 9, 9), dtype=np.float32)

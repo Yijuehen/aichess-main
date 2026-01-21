@@ -28,7 +28,8 @@ class Human1:
 if CONFIG['use_frame'] == 'paddle':
     policy_value_net = PolicyValueNet(model_file='current_policy.model')
 elif CONFIG['use_frame'] == 'pytorch':
-    policy_value_net = PolicyValueNet(model_file='models/current_policy100.pkl', use_gpu=False, device='cpu')
+    policy_value_net = PolicyValueNet(model_file='models/current_policy100.pkl')
+    print(f'AI对战使用设备: {policy_value_net.device}')
 else:
     print('暂不支持您选择的框架')
 

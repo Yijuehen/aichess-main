@@ -1,10 +1,11 @@
-"""策略价值网络 - Inference Optimized"""
+"""策略价值网络 - Inference Optimized with DDP Support"""
 
 
 import torch
 import torch.nn as nn
 import numpy as np
 import torch.nn.functional as F
+import torch.distributed as dist
 from config import CONFIG
 
 
@@ -85,35 +86,89 @@ class Net(nn.Module):
         return policy, value
 
 
-# 策略值网络 - Optimized for Inference (faster, no training needed)
+# 策略值网络 - Optimized for Inference with DDP support
 class PolicyValueNet:
 
     def __init__(self, model_file=None, use_gpu=None, device=None):
         # 使用CONFIG配置作为默认值
         self.use_gpu = CONFIG['use_gpu'] if use_gpu is None else use_gpu
         self.device = CONFIG['device'] if device is None else device
-        self.policy_value_net = Net().to(self.device)
+
+        # 分布式训练支持
+        self.distributed = CONFIG['distributed']['enabled']
+        self.is_ddp = False
+
+        if self.distributed:
+            # 初始化分布式环境
+            local_rank = CONFIG['distributed']['local_rank']
+            self.device = torch.device(f'cuda:{local_rank}')
+            torch.cuda.set_device(self.device)
+
+            # 初始化进程组（如果还未初始化）
+            if not dist.is_initialized():
+                dist.init_process_group(
+                    backend=CONFIG['distributed']['backend'],
+                    init_method=CONFIG['distributed']['init_method'],
+                    rank=CONFIG['distributed']['rank'],
+                    world_size=CONFIG['distributed']['world_size']
+                )
+
+            # 创建模型并移动到对应GPU
+            self.policy_value_net = Net().to(self.device)
+
+            # 包装为DDP
+            self.policy_value_net = torch.nn.parallel.DistributedDataParallel(
+                self.policy_value_net,
+                device_ids=[local_rank],
+                output_device=local_rank,
+                find_unused_parameters=True  # 允许部分参数不参与梯度计算
+            )
+            self.is_ddp = True
+            print(f"[Rank {CONFIG['distributed']['rank']}] DDP initialized on GPU {local_rank}")
+        else:
+            # 单GPU或CPU模式
+            self.policy_value_net = Net().to(self.device)
 
         # Load model if provided
         if model_file:
-            self.policy_value_net.load_state_dict(torch.load(model_file, weights_only=False, map_location=self.device))
+            if self.is_ddp:
+                # DDP模式下，需要加载到原始模型
+                state_dict = torch.load(model_file, weights_only=False, map_location=self.device)
+                # 如果保存的是DDP模型，需要去掉module.前缀
+                if list(state_dict.keys())[0].startswith('module.'):
+                    new_state_dict = {}
+                    for k, v in state_dict.items():
+                        new_state_dict[k[7:]] = v  # 去掉'module.'前缀
+                    state_dict = new_state_dict
+                self.policy_value_net.module.load_state_dict(state_dict)
+            else:
+                self.policy_value_net.load_state_dict(torch.load(model_file, weights_only=False, map_location=self.device))
 
         # CRITICAL OPTIMIZATIONS FOR INFERENCE:
         # 1. Set to eval mode (disables dropout, batchnorm updates, etc.)
-        self.policy_value_net.eval()
+        if self.is_ddp:
+            self.policy_value_net.module.eval()
+            # Disable gradient computation
+            for param in self.policy_value_net.module.parameters():
+                param.requires_grad = False
+        else:
+            self.policy_value_net.eval()
+            # Disable gradient computation
+            for param in self.policy_value_net.parameters():
+                param.requires_grad = False
 
-        # 2. Disable gradient computation - saves memory and speeds up inference
-        for param in self.policy_value_net.parameters():
-            param.requires_grad = False
-
-        # 3. Try torch.compile for PyTorch 2.0+ (major speedup)
+        # 2. Try torch.compile for PyTorch 2.0+ (major speedup)
+        # 注意：DDP模式下不支持torch.compile
         try:
-            self.policy_value_net = torch.compile(self.policy_value_net, mode="reduce-overhead")
-            self.compiled = True
+            if not self.is_ddp:
+                self.policy_value_net = torch.compile(self.policy_value_net, mode="reduce-overhead")
+                self.compiled = True
+            else:
+                self.compiled = False
         except:
             self.compiled = False
 
-        # 4. Warmup run to initialize optimizations
+        # 3. Warmup run to initialize optimizations
         self._warmup()
 
         if hasattr(self, 'compiled') and self.compiled:
@@ -148,7 +203,11 @@ class PolicyValueNet:
 
         # OPTIMIZED: Use torch.no_grad() - CRITICAL for speed
         with torch.no_grad():
-            log_act_probs, value = self.policy_value_net(current_state)
+            # DDP模式下直接调用
+            if self.is_ddp:
+                log_act_probs, value = self.policy_value_net(current_state)
+            else:
+                log_act_probs, value = self.policy_value_net(current_state)
 
         # Move to CPU only once at the end
         log_act_probs_cpu = log_act_probs.cpu()
@@ -165,7 +224,13 @@ class PolicyValueNet:
 
     # 保存模型
     def save_model(self, model_file):
-        torch.save(self.policy_value_net.state_dict(), model_file)
+        # DDP模式下保存原始模型
+        if self.is_ddp:
+            # 只在rank 0保存模型
+            if CONFIG['distributed']['rank'] == 0:
+                torch.save(self.policy_value_net.module.state_dict(), model_file)
+        else:
+            torch.save(self.policy_value_net.state_dict(), model_file)
 
     # 执行一步训练
     def train_step(self, state_batch, mcts_probs, winner_batch, lr=0.002):

@@ -184,8 +184,8 @@ def get_legal_moves(state_deque, current_player_color):
     接下来不能走的动作是(1011)，因为将会盘面与state_deque[-4]重复
     """
 
-    state_list = state_deque[-1]
-    old_state_list = state_deque[-4]
+    state_list = state_deque[-1]#取队列最后一个元素，即当前最新的棋盘状态（当前走棋后的状态）
+    old_state_list = state_deque[-4]#取队列倒数第四个元素，这个索引是中国象棋规则的核心体现 ——长将 / 长捉判负规则（禁止重复局面）
 
     moves = []  # 用来存放所有合法的走子方法
     face_to_face = False  # 将军面对面

@@ -1,8 +1,9 @@
-"""使用收集到数据进行训练"""
+"""使用收集到数据进行训练 - 支持分布式训练"""
 
 
 import random
 from collections import defaultdict, deque
+import os
 
 import numpy as np
 import pickle
@@ -25,6 +26,10 @@ elif CONFIG['use_frame'] == 'pytorch':
 else:
     print('暂不支持您选择的框架')
 
+# 分布式训练支持
+if CONFIG['distributed']['enabled']:
+    import torch.distributed as dist
+
 
 # 定义整个训练流程
 class TrainPipeline:
@@ -45,6 +50,18 @@ class TrainPipeline:
         self.game_batch_num = CONFIG['game_batch_num']  # 训练更新的次数
         self.best_win_ratio = 0.0
         self.pure_mcts_playout_num = 500
+
+        # 分布式训练配置
+        self.distributed = CONFIG['distributed']['enabled']
+        self.rank = CONFIG['distributed']['rank'] if self.distributed else 0
+        self.world_size = CONFIG['distributed']['world_size'] if self.distributed else 1
+
+        # 分布式训练下调整batch size（每个GPU的batch size）
+        if self.distributed:
+            # 总batch size保持不变，每个GPU处理总batch_size的一部分
+            self.batch_size = self.batch_size // self.world_size
+            print(f"[Rank {self.rank}] Distributed training: batch_size={self.batch_size} per GPU, total={self.batch_size * self.world_size}")
+
         if CONFIG['use_redis']:
             self.redis_cli = my_redis.get_redis_cli()
         self.buffer_size = maxlen=CONFIG['buffer_size']
@@ -52,16 +69,21 @@ class TrainPipeline:
         if init_model:
             try:
                 self.policy_value_net = PolicyValueNet(model_file=init_model)
-                print(f'已加载上次最终模型，使用设备: {self.policy_value_net.device}')
+                if self.rank == 0:
+                    print(f'已加载上次最终模型，使用设备: {self.policy_value_net.device}')
             except:
                 # 从零开始训练
-                print('模型路径不存在，从零开始训练')
+                if self.rank == 0:
+                    print('模型路径不存在，从零开始训练')
                 self.policy_value_net = PolicyValueNet()
-                print(f'使用设备: {self.policy_value_net.device}')
+                if self.rank == 0:
+                    print(f'使用设备: {self.policy_value_net.device}')
         else:
-            print('从零开始训练')
+            if self.rank == 0:
+                print('从零开始训练')
             self.policy_value_net = PolicyValueNet()
-            print(f'使用设备: {self.policy_value_net.device}')
+            if self.rank == 0:
+                print(f'使用设备: {self.policy_value_net.device}')
 
         # 初始化优化器
         if CONFIG['use_frame'] == 'pytorch':
@@ -154,47 +176,61 @@ class TrainPipeline:
 
     def run(self):
         """开始训练"""
+        # 在分布式训练中，只让rank 0进行数据加载和模型保存
         try:
             for i in range(self.game_batch_num):
-                if not CONFIG['use_redis']:
-                    while True:
-                        try:
-                            with open(CONFIG['train_data_buffer_path'], 'rb') as data_dict:
-                                data_file = pickle.load(data_dict)
-                                self.data_buffer = data_file['data_buffer']
-                                self.iters = data_file['iters']
-                                del data_file
-                            print('已载入数据')
-                            break
-                        except:
-                            time.sleep(30)
-                else:
-                    while True:
-                        try:
-                            l = len(self.data_buffer)
-                            data = my_redis.get_list_range(self.redis_cli,'train_data_buffer', l if l == 0 else l - 1,-1)
-                            self.data_buffer.extend(data)
-                            self.iters = self.redis_cli.get('iters')
-                            if self.redis_cli.llen('train_data_buffer') > self.buffer_size:
-                                self.redis_cli.lpop('train_data_buffer',self.buffer_size/10)
-                            break
-                        except:
-                            time.sleep(5)
+                # 只在rank 0加载数据
+                if self.rank == 0:
+                    if not CONFIG['use_redis']:
+                        while True:
+                            try:
+                                with open(CONFIG['train_data_buffer_path'], 'rb') as data_dict:
+                                    data_file = pickle.load(data_dict)
+                                    self.data_buffer = data_file['data_buffer']
+                                    self.iters = data_file['iters']
+                                    del data_file
+                                print('已载入数据')
+                                break
+                            except:
+                                time.sleep(30)
+                    else:
+                        while True:
+                            try:
+                                l = len(self.data_buffer)
+                                data = my_redis.get_list_range(self.redis_cli,'train_data_buffer', l if l == 0 else l - 1,-1)
+                                self.data_buffer.extend(data)
+                                self.iters = self.redis_cli.get('iters')
+                                if self.redis_cli.llen('train_data_buffer') > self.buffer_size:
+                                    self.redis_cli.lpop('train_data_buffer',self.buffer_size/10)
+                                break
+                            except:
+                                time.sleep(5)
 
-                print('step i {}: '.format(self.iters))
+                # 分布式同步：确保所有进程都有数据
+                if self.distributed:
+                    dist.barrier()
+
+                # 分发数据给所有进程（简单实现：每个进程使用相同数据）
+                # 在实际应用中，应该使用DistributedSampler
+                if self.rank == 0:
+                    print('step i {}: '.format(self.iters))
+
                 if len(self.data_buffer) > self.batch_size:
                     loss, entropy = self.policy_updata()
-                    # 保存模型
-                    if CONFIG['use_frame'] == 'paddle':
-                        self.policy_value_net.save_model(CONFIG['paddle_model_path'])
-                    elif CONFIG['use_frame'] == 'pytorch':
-                        self.policy_value_net.save_model(CONFIG['pytorch_model_path'])
-                    else:
-                        print('不支持所选框架')
+
+                    # 只在rank 0保存模型
+                    if self.rank == 0:
+                        # 保存模型
+                        if CONFIG['use_frame'] == 'paddle':
+                            self.policy_value_net.save_model(CONFIG['paddle_model_path'])
+                        elif CONFIG['use_frame'] == 'pytorch':
+                            self.policy_value_net.save_model(CONFIG['pytorch_model_path'])
+                        else:
+                            print('不支持所选框架')
 
                 time.sleep(CONFIG['train_update_interval'])  # 每10分钟更新一次模型
 
-                if (i + 1) % self.check_freq == 0:
+                if (i + 1) % self.check_freq == 0 and self.rank == 0:
                     # win_ratio = self.policy_evaluate()
                     # print("current self-play batch: {},win_ratio: {}".format(i + 1, win_ratio))
                     # self.policy_value_net.save_model('./current_policy.model')
@@ -210,7 +246,8 @@ class TrainPipeline:
                     print("current self-play batch: {}".format(i + 1))
                     self.policy_value_net.save_model('models/current_policy_batch{}.model'.format(i + 1))
         except KeyboardInterrupt:
-            print('\n\rquit')
+            if self.rank == 0:
+                print('\n\rquit')
 
 
 if CONFIG['use_frame'] == 'paddle':

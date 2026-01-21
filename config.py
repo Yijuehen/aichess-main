@@ -1,4 +1,5 @@
 import torch
+import os
 
 CONFIG = {
     'kill_action': 30,      #和棋回合数
@@ -22,4 +23,15 @@ CONFIG = {
     # GPU配置
     'use_gpu': True,  # 是否使用GPU
     'device': 'cuda' if torch.cuda.is_available() else 'cpu',  # 自动检测GPU
+
+    # 分布式训练配置
+    'distributed': {
+        'enabled': bool(os.getenv('DISTIBUTED_TRAINING', 'False').lower() == 'true'),
+        'backend': 'nccl',  # nccl for NVIDIA GPUs
+        'world_size': int(os.getenv('WORLD_SIZE', torch.cuda.device_count())),
+        'rank': int(os.getenv('RANK', 0)),
+        'local_rank': int(os.getenv('LOCAL_RANK', 0)),
+        'init_method': os.getenv('MASTER_ADDR', 'tcp://localhost:29500'),
+        'master_port': int(os.getenv('MASTER_PORT', 29500)),
+    }
 }

@@ -1,4 +1,4 @@
-"""自我对弈收集数据 - 优化版，每次对弈单独保存"""
+"""自我对弈收集数据 - 只保存到训练缓冲区"""
 import random
 from collections import deque
 import copy
@@ -37,11 +37,6 @@ class CollectPipeline:
         self.buffer_size = CONFIG['buffer_size']  # 经验池大小
         self.data_buffer = deque(maxlen=self.buffer_size)
         self.iters = 0
-
-        # 创建保存目录
-        self.save_dir = 'selfplay_data'
-        os.makedirs(self.save_dir, exist_ok=True)
-        print(f"[+] Data will be saved to: {os.path.abspath(self.save_dir)}")
 
         if CONFIG['use_redis']:
             self.redis_cli = my_redis.get_redis_cli()
@@ -86,7 +81,7 @@ class CollectPipeline:
         return extend_data
 
     def collect_selfplay_data(self, n_games=1):
-        """收集自我对弈的数据 - 每局单独保存"""
+        """收集自我对弈的数据 - 只保存到训练缓冲区"""
         for i in range(n_games):
             print(f"\n{'='*60}")
             print(f"Game {i+1}/{n_games} starting...")
@@ -107,33 +102,7 @@ class CollectPipeline:
             play_data_extended = self.get_equi_data(play_data)
             print(f"    Extended samples: {len(play_data_extended)}")
 
-            # 保存本次对弈到单独的文件
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            episode_file = os.path.join(self.save_dir, f'game_{self.iters+1}_{timestamp}.pkl')
-
-            episode_data = {
-                'game_id': self.iters + 1,
-                'winner': winner,
-                'episode_len': episode_len,
-                'timestamp': datetime.now().isoformat(),
-                'raw_data': play_data,
-                'extended_data': play_data_extended
-            }
-
-            try:
-                with open(episode_file, 'wb') as f:
-                    pickle.dump(episode_data, f)
-                print(f"[+] Saved to: {episode_file}")
-
-                # 同时更新日志文件
-                log_file = os.path.join(self.save_dir, 'collection_log.txt')
-                with open(log_file, 'a', encoding='utf-8') as f:
-                    f.write(f"{self.iters + 1},{timestamp},{winner},{episode_len},{len(play_data_extended)}\n")
-
-            except Exception as e:
-                print(f"[!] Failed to save episode: {e}")
-
-            # 也保存到总buffer中（向后兼容）
+            # 保存到训练缓冲区
             if CONFIG['use_redis']:
                 while True:
                     try:

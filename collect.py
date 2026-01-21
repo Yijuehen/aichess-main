@@ -96,6 +96,7 @@ class CollectPipeline:
             winner, play_data = self.game.start_self_play(self.mcts_player, temp=self.temp, is_shown=False)
             play_data = list(play_data)[:]
             episode_len = len(play_data)
+            self.episode_len = episode_len  # 保存为实例属性供run()使用
 
             print(f"[+] Game completed!")
             print(f"    Winner: {'Black' if winner == -1 else 'Red' if winner == 1 else 'Tie'}")

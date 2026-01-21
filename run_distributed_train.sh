@@ -14,7 +14,7 @@ export BATCH_SIZE=512  # 总batch size
 echo "=================================="
 echo "多GPU分布式训练"
 echo "=================================="
-echo "GPU数量: $WORLD_SIZE"
+echo "GPU数量: 4"
 echo "Batch size: $BATCH_SIZE"
 echo "Master地址: $MASTER_ADDR:$MASTER_PORT"
 echo "=================================="
@@ -24,7 +24,7 @@ echo "=================================="
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 python -m torch.distributed.launch \
-    --nproc_per_node=$WORLD_SIZE \
+    --nproc_per_node=4 \
     --nnodes=1 \
     --node_rank=0 \
     --master_addr=$MASTER_ADDR \

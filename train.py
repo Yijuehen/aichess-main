@@ -251,10 +251,10 @@ class TrainPipeline:
 
 
 if CONFIG['use_frame'] == 'paddle':
-    training_pipeline = TrainPipeline(init_model='current_policy.model')
+    training_pipeline = TrainPipeline(init_model=CONFIG['paddle_model_path'])
     training_pipeline.run()
 elif CONFIG['use_frame'] == 'pytorch':
-    training_pipeline = TrainPipeline(init_model='current_policy.pkl')
+    training_pipeline = TrainPipeline(init_model=CONFIG['pytorch_model_path'])
     training_pipeline.run()
 else:
     print('暂不支持您选择的框架')

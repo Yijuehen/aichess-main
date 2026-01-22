@@ -206,7 +206,7 @@ def get_legal_moves(state_deque, current_player_color):
             else:
                 if state_list[y][x] == '黑车' and current_player_color == '黑':  # 黑车的合法走子
                     toY = y
-                    for toX in range(x - 1, -1, -1):
+                    for toX in range(x - 1, -1, -1):#. 横向向左走（x 轴递减：从 x-1 到 0）
                         # 前面是先前位置，后面是移动后的位置
                         # 这里通过中断for循环实现了车的走子，车不能越过子
                         m = str(y) + str(x) + str(toY) + str(toX)#走棋指令编码（原位置 (y,x) → 目标位置 (toY,toX)）
@@ -217,7 +217,7 @@ def get_legal_moves(state_deque, current_player_color):
                             break
                         if change_state(state_list, m) != old_state_list:
                             moves.append(m)
-                    for toX in range(x + 1, 9):
+                    for toX in range(x + 1, 9):#. 横向向右走（x 轴递增：从 x+1 到 8）
                         m = str(y) + str(x) + str(toY) + str(toX)
                         if state_list[toY][toX] != '一一':
                             if '红' in state_list[toY][toX]:

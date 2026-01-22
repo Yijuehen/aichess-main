@@ -16,7 +16,7 @@ CONFIG = {
     'game_batch_num': 3000,  # 训练更新的次数
     'use_frame': 'pytorch',  # paddle or pytorch根据自己的环境进行切换
     'train_update_interval': 600,  #模型更新间隔时间
-    'use_redis': False, # 数据存储方式
+    'use_redis': True, # 数据存储方式（True=Redis用于并行收集，False=文件）
     'redis_host': 'localhost',
     'redis_port': 6379,
     'redis_db': 0,

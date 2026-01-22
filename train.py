@@ -244,7 +244,16 @@ class TrainPipeline:
                     #         self.pure_mcts_playout_num += 1000
                     #         self.best_win_ratio = 0.0
                     print("current self-play batch: {}".format(i + 1))
-                    self.policy_value_net.save_model('models/current_policy_batch{}.model'.format(i + 1))
+
+                    # 根据框架选择正确的文件扩展名
+                    if CONFIG['use_frame'] == 'paddle':
+                        checkpoint_path = 'models/current_policy_batch{}.model'.format(i + 1)
+                    elif CONFIG['use_frame'] == 'pytorch':
+                        checkpoint_path = 'models/current_policy_batch{}.pkl'.format(i + 1)
+                    else:
+                        checkpoint_path = 'models/current_policy_batch{}'.format(i + 1)
+
+                    self.policy_value_net.save_model(checkpoint_path)
         except KeyboardInterrupt:
             if self.rank == 0:
                 print('\n\rquit')

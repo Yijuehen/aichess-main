@@ -5,6 +5,8 @@ import copy
 import os
 import pickle
 import time
+import traceback
+import logging
 from datetime import datetime
 from game import Board, Game, move_action2move_id, move_id2move_action, flip_map
 from mcts import MCTSPlayer
@@ -43,22 +45,42 @@ class CollectPipeline:
 
     # 从主体加载模型
     def load_model(self):
+        # 配置日志
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - [%(levelname)s] - %(message)s'
+        )
+
+        # 确定模型路径
         if CONFIG['use_frame'] == 'paddle':
             model_path = CONFIG['paddle_model_path']
         elif CONFIG['use_frame'] == 'pytorch':
             model_path = CONFIG['pytorch_model_path']
         else:
-            print('暂不支持所选框架')
+            raise ValueError(f'暂不支持所选框架: {CONFIG["use_frame"]}')
+
+        # 尝试加载已有模型
         try:
             self.policy_value_net = PolicyValueNet(model_file=model_path)
-            print(f'已加载最新模型，使用设备: {self.policy_value_net.device}')
-        except:
+            logging.info(f'✅ 已加载最新模型: {model_path}')
+            logging.info(f'使用设备: {self.policy_value_net.device}')
+        except FileNotFoundError as e:
+            logging.warning(f'⚠️  模型文件不存在: {model_path}')
+            logging.warning(f'错误详情: {e}')
+            logging.info(f'创建新模型...')
             self.policy_value_net = PolicyValueNet()
-            print(f'已加载初始模型，使用设备: {self.policy_value_net.device}')
+            logging.info(f'使用设备: {self.policy_value_net.device}')
+        except Exception as e:
+            logging.error(f'❌ 模型加载失败: {e}')
+            logging.error(traceback.format_exc())
+            raise  # 重新抛出异常，让调用者知道失败
+
+        # 初始化MCTS
         self.mcts_player = MCTSPlayer(self.policy_value_net.policy_value_fn,
                                       c_puct=self.c_puct,
                                       n_playout=self.n_playout,
                                       is_selfplay=1)
+        logging.info(f'MCTS已初始化: c_puct={self.c_puct}, n_playout={self.n_playout}')
 
     def get_equi_data(self, play_data):
         """左右对称变换，扩充数据集一倍，加速一倍训练速度"""
@@ -148,23 +170,54 @@ class CollectPipeline:
 
     def run(self):
         """开始收集数据"""
+        # 配置日志 - 同时输出到文件和控制台
+        log_file = f'collect_{os.getpid()}.log'
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s - [%(levelname)s] - %(message)s',
+            handlers=[
+                logging.FileHandler(log_file),
+                logging.StreamHandler()
+            ]
+        )
+
         try:
+            logging.info('=' * 60)
+            logging.info('开始自我对弈数据收集')
+            logging.info(f'配置: buffer_size={self.buffer_size}, temp={self.temp}, n_playout={self.n_playout}')
+            logging.info(f'日志文件: {log_file}')
+            logging.info('=' * 60)
+
+            iteration = 0
             while True:
-                iters = self.collect_selfplay_data()
-                print('batch i: {}, episode_len: {}'.format(
-                    iters, self.episode_len))
+                try:
+                    iters = self.collect_selfplay_data()
+                    iteration += 1
+                    logging.info(f'✅ 第 {iters} 局完成 | 本局步数: {self.episode_len} | 总迭代: {iteration}')
+
+                except Exception as game_error:
+                    logging.error(f'❌ 自我对弈失败 (第{iteration}次迭代): {game_error}')
+                    logging.error(traceback.format_exc())
+                    logging.info(f'等待5秒后重试...')
+                    time.sleep(5)
+                    continue
+
         except KeyboardInterrupt:
-            print('\n\rquit')
+            logging.info('')
+            logging.info('=' * 60)
+            logging.info('收到停止信号，正在退出...')
+            logging.info('=' * 60)
+        except Exception as e:
+            logging.critical(f'💥 致命错误: {e}')
+            logging.critical(traceback.format_exc())
+            raise
 
-
-collecting_pipeline = CollectPipeline(init_model='current_policy.model')
-collecting_pipeline.run()
 
 if CONFIG['use_frame'] == 'paddle':
-    collecting_pipeline = CollectPipeline(init_model='current_policy.model')
+    collecting_pipeline = CollectPipeline(init_model=CONFIG['paddle_model_path'])
     collecting_pipeline.run()
 elif CONFIG['use_frame'] == 'pytorch':
-    collecting_pipeline = CollectPipeline(init_model='current_policy.pkl')
+    collecting_pipeline = CollectPipeline(init_model=CONFIG['pytorch_model_path'])
     collecting_pipeline.run()
 else:
     print('暂不支持您选择的框架')

@@ -92,7 +92,9 @@ for gpu_id in "${AVAILABLE_GPUS[@]}"; do
     echo "启动进程 $PROCESS_COUNT 使用 GPU $gpu_id"
 
     # 使用CUDA_VISIBLE_DEVICES绑定GPU
-    CUDA_VISIBLE_DEVICES=$gpu_id /root/miniconda3/bin/python $SCRIPT_DIR/collect.py > collect_${gpu_id}.log 2>&1 &
+    # 使用tee同时输出到屏幕和日志文件
+    CUDA_VISIBLE_DEVICES=$gpu_id /root/miniconda3/bin/python $SCRIPT_DIR/collect.py 2>&1 | tee collect_${gpu_id}.log &
+
 
     # 保存进程ID
     PID=$!

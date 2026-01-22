@@ -105,37 +105,41 @@ class CollectPipeline:
     def collect_selfplay_data(self, n_games=1):
         """收集自我对弈的数据 - 只保存到训练缓冲区"""
         for i in range(n_games):
-            print(f"\n{'='*60}")
-            print(f"Game {i+1}/{n_games} starting...")
-            print(f"{'='*60}")
+            print(f"\n{'='*60}", flush=True)
+            print(f"🎮 Game {i+1}/{n_games} starting...", flush=True)
+            print(f"{'='*60}", flush=True)
 
             self.load_model()  # 从本体处加载最新模型
+
+            print(f"🔄 正在进行自我对弈 (MCTS模拟: {self.n_playout}次/步)...", flush=True)
             winner, play_data = self.game.start_self_play(self.mcts_player, temp=self.temp, is_shown=False)
             play_data = list(play_data)[:]
             episode_len = len(play_data)
             self.episode_len = episode_len  # 保存为实例属性供run()使用
 
-            print(f"[+] Game completed!")
-            print(f"    Winner: {'Black' if winner == -1 else 'Red' if winner == 1 else 'Tie'}")
-            print(f"    Moves: {episode_len}")
-            print(f"    Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"✅ Game completed!", flush=True)
+            print(f"    胜者: {'黑方' if winner == -1 else '红方' if winner == 1 else '平局'}", flush=True)
+            print(f"    步数: {episode_len}", flush=True)
+            print(f"    时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", flush=True)
 
             # 增加数据 - 左右对称扩充
+            print(f"🔄 正在扩展数据...", flush=True)
             play_data_extended = self.get_equi_data(play_data)
-            print(f"    Extended samples: {len(play_data_extended)}")
+            print(f"    扩展后样本数: {len(play_data_extended)}", flush=True)
 
             # 保存到训练缓冲区
             if CONFIG['use_redis']:
+                print(f"💾 正在保存到Redis...", flush=True)
                 while True:
                     try:
                         for d in play_data_extended:
                             self.redis_cli.rpush('train_data_buffer', pickle.dumps(d))
                         self.redis_cli.incr('iters')
                         self.iters = int(self.redis_cli.get('iters'))
-                        print(f"[+] Redis updated. Total games: {self.iters}")
+                        print(f"✅ Redis已更新! 总局数: {self.iters}", flush=True)
                         break
                     except Exception as e:
-                        print(f"[!] Redis save failed: {e}")
+                        print(f"❌ Redis保存失败: {e}", flush=True)
                         time.sleep(1)
             else:
                 # Load existing buffer
@@ -156,15 +160,16 @@ class CollectPipeline:
                 self.iters += 1
 
                 # Save combined buffer
+                print(f"💾 正在保存到文件...", flush=True)
                 data_dict = {'data_buffer': list(self.data_buffer), 'iters': self.iters}
                 try:
                     with open(CONFIG['train_data_buffer_path'], 'wb') as data_file:
                         pickle.dump(data_dict, data_file)
-                    print(f"[+] Total buffer updated: {len(self.data_buffer)} samples, {self.iters} games")
+                    print(f"✅ 文件已更新! 总样本数: {len(self.data_buffer)}, 总局数: {self.iters}", flush=True)
                 except Exception as e:
-                    print(f"[!] Failed to save buffer: {e}")
+                    print(f"❌ 保存文件失败: {e}", flush=True)
 
-            print(f"{'='*60}\n")
+            print(f"{'='*60}\n", flush=True)
 
         return self.iters
 

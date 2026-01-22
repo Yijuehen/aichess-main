@@ -15,8 +15,7 @@
 6. ✅ start_collect.sh - 快速启动
 7. ✅ stop_collect.sh - 快速停止
 8. ✅ monitor.sh - 实时监控
-9. ✅ export_redis_data.sh - 导出Redis数据
-10. ✅ import_redis_data.sh - 导入Redis数据
+9. ✅ export_redis_data.sh - 导出Redis数据到 train_data_buffer.pkl（备份）
 
 ### 文档
 11. ✅ SCRIPTS_GUIDE.md - 详细使用指南
@@ -30,8 +29,7 @@
 | **start_collect.sh** | 启动collect | 每次启动数据收集 |
 | **stop_collect.sh** | 停止collect | 停止数据收集 |
 | **monitor.sh** | 实时监控 | 查看收集进度和状态 |
-| **export_redis_data.sh** | 导出数据 | 备份Redis数据到文件 |
-| **import_redis_data.sh** | 导入数据 | 从文件恢复数据到Redis |
+| **export_redis_data.sh** | 导出备份 | 备份Redis数据到 train_data_buffer.pkl |
 | **run_parallel_collect.sh** | 主收集脚本 | 由start_collect调用 |
 | **run_distributed_train.sh** | 训练脚本 | 训练模型时使用 |
 
@@ -69,24 +67,20 @@ cd /tmp/aichess-main
 
 ---
 
-## 💾 数据管理
-
-### 导出数据（备份）
+## 💾 数据备份
 
 ```bash
-# 导出当前Redis数据到文件
+# 导出当前Redis数据到 train_data_buffer.pkl
 ./export_redis_data.sh
 
-# 文件保存在 exports/ 目录
-ls -lh exports/
+# 查看备份文件
+ls -lh train_data_buffer.pkl
 ```
 
-### 导入数据（恢复）
-
-```bash
-# 从文件导入到Redis
-./import_redis_data.sh exports/train_data_backup_20260122_120000.pkl
-```
+**导出说明**：
+- 固定文件名：`train_data_buffer.pkl`
+- 每次导出覆盖旧文件
+- 防止Redis重启导致数据丢失
 
 ---
 
@@ -184,8 +178,7 @@ tail -f nohup_collect.log    # 实时日志
 tail -50 nohup_collect.log   # 最近50行
 
 # === 数据管理 ===
-./export_redis_data.sh       # 导出备份
-./import_redis_data.sh <文件>  # 导入恢复
+./export_redis_data.sh       # 导出备份到 train_data_buffer.pkl
 ```
 
 ---
@@ -203,10 +196,10 @@ tail -50 nohup_collect.log   # 最近50行
 3. 每天导出一次备份
 
 ### 最佳实践
-- ✅ 每天备份一次数据
-- ✅ 每周检查一次磁盘空间
+- ✅ 每天或每达到一定局数后备份一次数据
+- ✅ 重启服务器前务必导出备份
+- ✅ 定期检查备份文件大小
 - ✅ 达到5000局后保存模型
-- ✅ 定期清理旧的备份文件
 
 ---
 
@@ -221,10 +214,10 @@ cat SCRIPTS_GUIDE.md
 
 ## 🎉 总结
 
-**7个脚本，覆盖所有需求！**
+**6个脚本，覆盖所有需求！**
 
 1. ✅ **启动/停止/监控** - start/stop/monitor
-2. ✅ **导出/导入** - export/import
+2. ✅ **数据备份** - export (导出到 train_data_buffer.pkl)
 3. ✅ **并行收集** - run_parallel_collect
 4. ✅ **分布式训练** - run_distributed_train
 5. ✅ **完整文档** - SCRIPTS_GUIDE.md

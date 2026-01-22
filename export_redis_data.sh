@@ -1,8 +1,8 @@
 #!/bin/bash
-# 导出Redis训练数据到文件
+# 导出Redis训练数据到 train_data_buffer.pkl
 
 echo "========================================"
-echo "💾 导出Redis数据到文件"
+echo "💾 导出Redis数据到 train_data_buffer.pkl"
 echo "========================================"
 echo ""
 
@@ -25,16 +25,11 @@ echo "  游戏局数: $iters"
 echo "  训练样本: $samples"
 echo ""
 
-# 生成导出文件名（带时间戳）
-timestamp=$(date '+%Y%m%d_%H%M%S')
-export_file="train_data_backup_${timestamp}.pkl"
-export_dir="exports"
-
-# 创建导出目录
-mkdir -p "$export_dir"
+# 固定文件名
+export_file="train_data_buffer.pkl"
 
 echo "📦 开始导出..."
-echo "  目标文件: $export_dir/$export_file"
+echo "  目标文件: $export_file"
 echo ""
 
 # 创建临时Python脚本进行导出
@@ -83,7 +78,7 @@ except Exception as e:
 EOF
 
 # 执行导出
-/root/miniconda3/bin/python /tmp/export_redis.py "$export_dir/$export_file"
+/root/miniconda3/bin/python /tmp/export_redis.py "$export_file"
 
 # 清理临时脚本
 rm /tmp/export_redis.py
@@ -93,15 +88,14 @@ echo "========================================"
 echo "导出完成！"
 echo "========================================"
 echo ""
-echo "文件位置: $export_dir/$export_file"
+echo "文件位置: $export_file"
 
 # 显示文件大小
-if [ -f "$export_dir/$export_file" ]; then
-    size=$(du -h "$export_dir/$export_file" | cut -f1)
+if [ -f "$export_file" ]; then
+    size=$(du -h "$export_file" | cut -f1)
     echo "文件大小: $size"
     echo ""
-    echo "使用方法:"
-    echo "  python -c \"import pickle; data = pickle.load(open('$export_dir/$export_file', 'rb')); print(f'样本数: {len(data)}')\""
+    echo "✅ 数据已备份，可以防止Redis重启丢失"
 else
     echo "⚠️  文件未创建"
 fi

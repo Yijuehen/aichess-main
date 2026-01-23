@@ -15,6 +15,9 @@ from game import Game, Board
 from mcts import MCTSPlayer
 from mcts_pure import MCTS_Pure
 
+# 序列化工具 - MessagePack优化 (快15-25%)
+from utils.msgpack_serializer import load_with_auto_detect
+
 if CONFIG['use_redis']:
     import my_redis, redis
     import zip_array
@@ -184,14 +187,15 @@ class TrainPipeline:
                     if not CONFIG['use_redis']:
                         while True:
                             try:
-                                with open(CONFIG['train_data_buffer_path'], 'rb') as data_dict:
-                                    data_file = pickle.load(data_dict)
-                                    self.data_buffer = data_file['data_buffer']
-                                    self.iters = data_file['iters']
-                                    del data_file
-                                print('已载入数据')
+                                # 使用自动检测加载 (支持旧pickle和新msgpack)
+                                data_file = load_with_auto_detect(CONFIG['train_data_buffer_path'])
+                                self.data_buffer = data_file['data_buffer']
+                                self.iters = data_file['iters']
+                                del data_file
+                                print(f'✅ 已载入数据: {len(self.data_buffer)} 样本, {self.iters} 局')
                                 break
-                            except:
+                            except Exception as e:
+                                print(f'⚠️  数据加载失败: {e}, 30秒后重试...')
                                 time.sleep(30)
                     else:
                         while True:

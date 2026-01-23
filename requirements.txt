@@ -1,0 +1,16 @@
+# AI Chess Training Requirements
+
+# Core dependencies
+numpy
+torch
+paddlepaddle  # Optional: if using paddle framework
+redis
+
+# Serialization optimization (可选但推荐)
+# MessagePack比pickle快15-25%，存储节省30-50%
+msgpack>=1.0.0
+msgpack-numpy>=0.4.0
+
+# 如果使用HDF5存储 (可选)
+# h5py>=3.0.0
+# tables>=3.7.0

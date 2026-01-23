@@ -17,6 +17,9 @@ if CONFIG['use_redis']:
 
 import zip_array
 
+# 序列化工具 - MessagePack优化 (快15-25%)
+from utils.msgpack_serializer import MsgPackSerializer, load_with_auto_detect
+
 if CONFIG['use_frame'] == 'paddle':
     from paddle_net import PolicyValueNet
 elif CONFIG['use_frame'] == 'pytorch':
@@ -132,25 +135,39 @@ class CollectPipeline:
                 print(f"💾 正在保存到Redis...", flush=True)
                 while True:
                     try:
+                        # 根据配置选择序列化格式
+                        redis_format = CONFIG['serialization'].get('redis_format', 'pickle')
+                        compress = CONFIG['serialization'].get('compress', False)
+
                         for d in play_data_extended:
-                            self.redis_cli.rpush('train_data_buffer', pickle.dumps(d))
+                            if redis_format == 'msgpack':
+                                data = MsgPackSerializer.dumps(d)
+                                if compress:
+                                    import gzip
+                                    data = gzip.compress(data)
+                                self.redis_cli.rpush('train_data_buffer', data)
+                            else:
+                                # 使用pickle
+                                self.redis_cli.rpush('train_data_buffer', pickle.dumps(d))
+
                         self.redis_cli.incr('iters')
                         self.iters = int(self.redis_cli.get('iters'))
-                        print(f"✅ Redis已更新! 总局数: {self.iters}", flush=True)
+                        print(f"✅ Redis已更新! 总局数: {self.iters} (格式: {redis_format})", flush=True)
                         break
                     except Exception as e:
                         print(f"❌ Redis保存失败: {e}", flush=True)
                         time.sleep(1)
             else:
-                # Load existing buffer
+                # Load existing buffer - 自动检测pickle/msgpack格式
                 if os.path.exists(CONFIG['train_data_buffer_path']):
                     try:
-                        with open(CONFIG['train_data_buffer_path'], 'rb') as data_dict:
-                            data_file = pickle.load(data_dict)
-                            self.data_buffer = deque(maxlen=self.buffer_size)
-                            self.data_buffer.extend(data_file['data_buffer'])
-                            self.iters = data_file['iters']
-                            del data_file
+                        # 使用自动检测加载 (支持旧pickle和新msgpack)
+                        data_file = load_with_auto_detect(CONFIG['train_data_buffer_path'])
+                        self.data_buffer = deque(maxlen=self.buffer_size)
+                        self.data_buffer.extend(data_file['data_buffer'])
+                        self.iters = data_file['iters']
+                        del data_file
+                        print(f"✅ 已加载现有数据: {len(self.data_buffer)} 样本, {self.iters} 局", flush=True)
                     except Exception as e:
                         print(f"[!] Failed to load existing buffer: {e}")
                         self.iters = 0
@@ -159,13 +176,25 @@ class CollectPipeline:
                 self.data_buffer.extend(play_data_extended)
                 self.iters += 1
 
-                # Save combined buffer
+                # Save combined buffer - 使用配置的格式
                 print(f"💾 正在保存到文件...", flush=True)
                 data_dict = {'data_buffer': list(self.data_buffer), 'iters': self.iters}
                 try:
-                    with open(CONFIG['train_data_buffer_path'], 'wb') as data_file:
-                        pickle.dump(data_dict, data_file)
-                    print(f"✅ 文件已更新! 总样本数: {len(self.data_buffer)}, 总局数: {self.iters}", flush=True)
+                    # 根据配置选择序列化格式
+                    serialize_format = CONFIG['serialization'].get('format', 'pickle')
+                    compress = CONFIG['serialization'].get('compress', False)
+
+                    if serialize_format == 'msgpack':
+                        if compress:
+                            MsgPackSerializer.dump_compressed(data_dict, CONFIG['train_data_buffer_path'], compress=True)
+                        else:
+                            MsgPackSerializer.dump(data_dict, CONFIG['train_data_buffer_path'])
+                    else:
+                        # 使用pickle
+                        with open(CONFIG['train_data_buffer_path'], 'wb') as data_file:
+                            pickle.dump(data_dict, data_file)
+
+                    print(f"✅ 文件已更新! 总样本数: {len(self.data_buffer)}, 总局数: {self.iters} (格式: {serialize_format})", flush=True)
                 except Exception as e:
                     print(f"❌ 保存文件失败: {e}", flush=True)
 

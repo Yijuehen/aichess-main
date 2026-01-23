@@ -36,5 +36,13 @@ CONFIG = {
         'master_addr': os.getenv('MASTER_ADDR', 'localhost'),
         'master_port': int(os.getenv('MASTER_PORT', '29500')),
         'init_method': f"tcp://{os.getenv('MASTER_ADDR', 'localhost')}:{os.getenv('MASTER_PORT', '29500')}",
+    },
+
+    # 序列化配置 - 数据压缩优化
+    'serialization': {
+        'format': 'msgpack',           # 序列化格式: 'msgpack' (快15-25%), 'pickle' (兼容)
+        'compress': False,             # 是否额外gzip压缩 (msgpack通常不需要)
+        'auto_migrate': True,          # 自动读取旧pickle格式并转换为新格式
+        'redis_format': 'msgpack',     # Redis传输格式: 'msgpack', 'pickle'
     }
 }

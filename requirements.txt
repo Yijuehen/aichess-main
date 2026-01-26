@@ -11,6 +11,10 @@ redis
 msgpack>=1.0.0
 msgpack-numpy>=0.4.0
 
+# GPU负载均衡
+# 进程监控和管理
+psutil>=5.9.0
+
 # 如果使用HDF5存储 (可选)
 # h5py>=3.0.0
 # tables>=3.7.0

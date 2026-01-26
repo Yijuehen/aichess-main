@@ -44,5 +44,22 @@ CONFIG = {
         'compress': False,             # 是否额外gzip压缩 (msgpack通常不需要)
         'auto_migrate': True,          # 自动读取旧pickle格式并转换为新格式
         'redis_format': 'msgpack',     # Redis传输格式: 'msgpack', 'pickle'
+    },
+
+    # GPU负载均衡配置
+    'gpu_balancing': {
+        'enabled': bool(os.getenv('GPU_BALANCING_ENABLED', 'False').lower() == 'true'),
+        'monitor_interval': float(os.getenv('GPU_MONITOR_INTERVAL', '5.0')),
+        'metrics_ttl': int(os.getenv('GPU_METRICS_TTL', '10')),
+        'balance_interval': float(os.getenv('BALANCE_INTERVAL', '60.0')),
+        'enable_migration': bool(os.getenv('ENABLE_MIGRATION', 'False')),
+        'thresholds': {
+            'min_memory_mb': int(os.getenv('MIN_GPU_MEMORY', '2000')),
+            'max_utilization': float(os.getenv('MAX_GPU_UTIL', '90.0')),
+            'max_temperature': int(os.getenv('MAX_GPU_TEMP', '85')),
+            'util_low_threshold': float(os.getenv('UTIL_LOW', '50.0')),
+            'util_high_threshold': float(os.getenv('UTIL_HIGH', '85.0')),
+            'adaptive': bool(os.getenv('ADAPTIVE_THRESHOLDS', 'True')),
+        },
     }
 }

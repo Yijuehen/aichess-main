@@ -1,5 +1,5 @@
 #!/bin/bash
-# 多进程并行数据收集脚本 - 智能GPU检测版本
+# 多进程并行数据收集脚本 - 智能GPU分配版本
 
 # 配置区域
 MIN_GPU_MEMORY_MB=2000  # 最小需要GPU内存（MB），低于此值不使用
@@ -7,79 +7,134 @@ MAX_GPU_UTIL=90         # 最大GPU利用率（%），超过此值不使用
 BATCH_SIZE=512
 
 echo "=================================="
-echo "多进程并行数据收集（智能GPU检测）"
-echo "=================================="
-echo "最小GPU内存要求: ${MIN_GPU_MEMORY_MB}MB"
-echo "最大GPU利用率: ${MAX_GPU_UTIL}%"
-echo "数据存储: Redis"
+echo "多进程并行数据收集（智能GPU分配）"
 echo "=================================="
 
-# 获取脚本所在目录
-SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+# 检查是否启用GPU负载均衡
+if [ "$GPU_BALANCING_ENABLED" = "true" ]; then
+    echo "GPU分配模式: 动态负载均衡"
+    echo "数据存储: Redis"
+    echo "=================================="
 
-# 检测可用GPU
-echo ""
-echo "正在检测GPU状态..."
-
-# 获取GPU数量
-NUM_GPUS=$(nvidia-smi --query-gpu=count --format=csv,noheader,nounits | head -1)
-if [ -z "$NUM_GPUS" ]; then
-    echo "错误: 未检测到GPU，请确保安装了nvidia-smi"
-    exit 1
-fi
-
-echo "检测到 $NUM_GPUS 个GPU"
-
-# 检测每个GPU的状态并筛选可用的GPU
-AVAILABLE_GPUS=()
-for gpu_id in $(seq 0 $(($NUM_GPUS - 1))); do
-    # 获取GPU内存使用情况（MB）
-    MEMORY_USED=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i $gpu_id | head -1)
-    MEMORY_TOTAL=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits -i $gpu_id | head -1)
-    MEMORY_FREE=$((MEMORY_TOTAL - MEMORY_USED))
-
-    # 获取GPU利用率
-    GPU_UTIL=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits -i $gpu_id | head -1)
-
-    # GPU名称
-    GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader -i $gpu_id | head -1)
+    # 获取脚本所在目录
+    SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
     echo ""
-    echo "GPU $gpu_id: $GPU_NAME"
-    echo "  内存: 已用 ${MEMORY_USED}MB / 总计 ${MEMORY_TOTAL}MB = 空闲 ${MEMORY_FREE}MB"
-    echo "  利用率: ${GPU_UTIL}%"
+    echo "正在调用任务调度器分配GPU..."
 
-    # 判断GPU是否可用
-    if [ $MEMORY_FREE -lt $MIN_GPU_MEMORY_MB ]; then
-        echo "  ❌ 不可用: 空闲内存不足 (${MEMORY_FREE}MB < ${MIN_GPU_MEMORY_MB}MB)"
-    elif [ $GPU_UTIL -gt $MAX_GPU_UTIL ]; then
-        echo "  ❌ 不可用: 利用率过高 (${GPU_UTIL}% > ${MAX_GPU_UTIL}%)"
-    else
-        echo "  ✅ 可用: 空闲内存充足，利用率低"
-        AVAILABLE_GPUS+=($gpu_id)
+    # 调用gpu_balance_env.sh获取分配的GPU
+    ALLOCATED_GPUS_STR=$(bash "$SCRIPT_DIR/scripts/gpu_balance_env.sh" "collect" -1)
+    if [ $? -ne 0 ] || [ -z "$ALLOCATED_GPUS_STR" ]; then
+        echo "❌ GPU分配失败！"
+        echo "可能原因:"
+        echo "  1. Redis未运行"
+        echo "  2. GPU监控未启动"
+        echo ""
+        echo "解决方法:"
+        echo "  ./scripts/start_gpu_monitor.sh  # 启动GPU监控"
+        exit 1
     fi
-done
 
-echo ""
-echo "=================================="
-echo "检测结果总结"
-echo "=================================="
-echo "可用GPU数量: ${#AVAILABLE_GPUS[@]}"
-echo "可用GPU编号: ${AVAILABLE_GPUS[@]}"
+    # 将逗号分隔的GPU ID转换为数组
+    IFS=',' read -ra AVAILABLE_GPUS <<< "$ALLOCATED_GPUS_STR"
 
-if [ ${#AVAILABLE_GPUS[@]} -eq 0 ]; then
+    echo "✅ GPU分配成功"
     echo ""
-    echo "❌ 没有可用的GPU！"
-    echo "建议:"
-    echo "  1. 降低 MIN_GPU_MEMORY_MB 要求（当前: ${MIN_GPU_MEMORY_MB}MB）"
-    echo "  2. 关闭其他使用GPU的程序"
-    echo "  3. 等待GPU释放"
-    exit 1
+    echo "=================================="
+    echo "分配结果总结"
+    echo "=================================="
+    echo "分配GPU数量: ${#AVAILABLE_GPUS[@]}"
+    echo "分配GPU编号: ${AVAILABLE_GPUS[@]}"
+
+    if [ ${#AVAILABLE_GPUS[@]} -eq 0 ]; then
+        echo ""
+        echo "❌ 没有可用的GPU！"
+        echo "建议:"
+        echo "  1. 等待GPU释放"
+        echo "  2. 降低GPU负载"
+        exit 1
+    fi
+
+else
+    # 使用原有的静态GPU检测逻辑
+    echo "GPU分配模式: 静态检测"
+    echo "最小GPU内存要求: ${MIN_GPU_MEMORY_MB}MB"
+    echo "最大GPU利用率: ${MAX_GPU_UTIL}%"
+    echo "数据存储: Redis"
+    echo "=================================="
+
+    # 获取脚本所在目录
+    SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+    # 检测可用GPU
+    echo ""
+    echo "正在检测GPU状态..."
+
+    # 获取GPU数量
+    NUM_GPUS=$(nvidia-smi --query-gpu=count --format=csv,noheader,nounits | head -1)
+    if [ -z "$NUM_GPUS" ]; then
+        echo "错误: 未检测到GPU，请确保安装了nvidia-smi"
+        exit 1
+    fi
+
+    echo "检测到 $NUM_GPUS 个GPU"
+
+    # 检测每个GPU的状态并筛选可用的GPU
+    AVAILABLE_GPUS=()
+    for gpu_id in $(seq 0 $(($NUM_GPUS - 1))); do
+        # 获取GPU内存使用情况（MB）
+        MEMORY_USED=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits -i $gpu_id | head -1)
+        MEMORY_TOTAL=$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits -i $gpu_id | head -1)
+        MEMORY_FREE=$((MEMORY_TOTAL - MEMORY_USED))
+
+        # 获取GPU利用率
+        GPU_UTIL=$(nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits -i $gpu_id | head -1)
+
+        # GPU名称
+        GPU_NAME=$(nvidia-smi --query-gpu=name --format=csv,noheader -i $gpu_id | head -1)
+
+        echo ""
+        echo "GPU $gpu_id: $GPU_NAME"
+        echo "  内存: 已用 ${MEMORY_USED}MB / 总计 ${MEMORY_TOTAL}MB = 空闲 ${MEMORY_FREE}MB"
+        echo "  利用率: ${GPU_UTIL}%"
+
+        # 判断GPU是否可用
+        if [ $MEMORY_FREE -lt $MIN_GPU_MEMORY_MB ]; then
+            echo "  ❌ 不可用: 空闲内存不足 (${MEMORY_FREE}MB < ${MIN_GPU_MEMORY_MB}MB)"
+        elif [ $GPU_UTIL -gt $MAX_GPU_UTIL ]; then
+            echo "  ❌ 不可用: 利用率过高 (${GPU_UTIL}% > ${MAX_GPU_UTIL}%)"
+        else
+            echo "  ✅ 可用: 空闲内存充足，利用率低"
+            AVAILABLE_GPUS+=($gpu_id)
+        fi
+    done
+
+    echo ""
+    echo "=================================="
+    echo "检测结果总结"
+    echo "=================================="
+    echo "可用GPU数量: ${#AVAILABLE_GPUS[@]}"
+    echo "可用GPU编号: ${AVAILABLE_GPUS[@]}"
+
+    if [ ${#AVAILABLE_GPUS[@]} -eq 0 ]; then
+        echo ""
+        echo "❌ 没有可用的GPU！"
+        echo "建议:"
+        echo "  1. 降低 MIN_GPU_MEMORY_MB 要求（当前: ${MIN_GPU_MEMORY_MB}MB）"
+        echo "  2. 关闭其他使用GPU的程序"
+        echo "  3. 等待GPU释放"
+        exit 1
+    fi
 fi
 
 # 设置环境变量
 export DISTIBUTED_TRAINING=false
 export BATCH_SIZE=$BATCH_SIZE
+
+# 传递GPU负载均衡标志给子进程
+if [ "$GPU_BALANCING_ENABLED" = "true" ]; then
+    export GPU_BALANCING_ENABLED=true
+fi
 
 echo ""
 echo "启动 ${#AVAILABLE_GPUS[@]} 个数据收集进程..."

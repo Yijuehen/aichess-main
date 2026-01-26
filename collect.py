@@ -20,6 +20,11 @@ import zip_array
 # 序列化工具 - MessagePack优化 (快15-25%)
 from utils.msgpack_serializer import MsgPackSerializer, load_with_auto_detect
 
+# GPU负载均衡 - 进程追踪和心跳
+if CONFIG['gpu_balancing']['enabled']:
+    from gpu_balance.process_tracker import ProcessTracker
+    from gpu_balance.config import get_config as get_gpu_balance_config
+
 if CONFIG['use_frame'] == 'paddle':
     from paddle_net import PolicyValueNet
 elif CONFIG['use_frame'] == 'pytorch':
@@ -45,6 +50,14 @@ class CollectPipeline:
 
         if CONFIG['use_redis']:
             self.redis_cli = my_redis.get_redis_cli()
+
+        # GPU负载均衡 - 进程追踪器
+        if CONFIG['gpu_balancing']['enabled']:
+            gpu_config = get_gpu_balance_config()
+            self.process_tracker = ProcessTracker(config=gpu_config)
+            self.heartbeat_interval = 10.0  # 心跳间隔(秒)
+        else:
+            self.process_tracker = None
 
     # 从主体加载模型
     def load_model(self):
@@ -84,6 +97,65 @@ class CollectPipeline:
                                       n_playout=self.n_playout,
                                       is_selfplay=1)
         logging.info(f'MCTS已初始化: c_puct={self.c_puct}, n_playout={self.n_playout}')
+
+    def get_gpu_id(self) -> int:
+        """获取当前进程使用的GPU ID"""
+        cuda_devices = os.getenv('CUDA_VISIBLE_DEVICES', '0')
+        return int(cuda_devices.split(',')[0])
+
+    def register_process(self) -> bool:
+        """注册collect进程到进程追踪器"""
+        if not self.process_tracker:
+            return True  # 未启用负载均衡时直接返回成功
+
+        try:
+            pid = os.getpid()
+            gpu_id = self.get_gpu_id()
+            success = self.process_tracker.register_process(
+                pid=pid,
+                gpu_id=gpu_id,
+                proc_type='collect',
+                priority=5  # 默认优先级
+            )
+            if success:
+                logging.info(f'✅ 进程已注册: PID={pid}, GPU={gpu_id}, 类型=collect')
+            return success
+        except Exception as e:
+            logging.error(f'注册进程失败: {e}')
+            return False
+
+    def send_heartbeat(self) -> bool:
+        """发送心跳到进程追踪器"""
+        if not self.process_tracker:
+            return True  # 未启用负载均衡时直接返回成功
+
+        try:
+            pid = os.getpid()
+            gpu_id = self.get_gpu_id()
+            success = self.process_tracker.update_heartbeat(
+                pid=pid,
+                games_completed=self.iters,
+                status='running'
+            )
+            return success
+        except Exception as e:
+            logging.error(f'发送心跳失败: {e}')
+            return False
+
+    def unregister_process(self) -> bool:
+        """注销collect进程"""
+        if not self.process_tracker:
+            return True  # 未启用负载均衡时直接返回成功
+
+        try:
+            pid = os.getpid()
+            success = self.process_tracker.unregister_process(pid)
+            if success:
+                logging.info(f'✅ 进程已注销: PID={pid}')
+            return success
+        except Exception as e:
+            logging.error(f'注销进程失败: {e}')
+            return False
 
     def get_equi_data(self, play_data):
         """左右对称变换，扩充数据集一倍，加速一倍训练速度"""
@@ -222,12 +294,25 @@ class CollectPipeline:
             logging.info(f'日志文件: {log_file}')
             logging.info('=' * 60)
 
+            # 注册进程（如果启用GPU负载均衡）
+            if self.process_tracker:
+                self.register_process()
+
             iteration = 0
+            last_heartbeat_time = time.time()
+
             while True:
                 try:
                     iters = self.collect_selfplay_data()
                     iteration += 1
                     logging.info(f'✅ 第 {iters} 局完成 | 本局步数: {self.episode_len} | 总迭代: {iteration}')
+
+                    # 发送心跳（如果启用GPU负载均衡）
+                    if self.process_tracker:
+                        current_time = time.time()
+                        if current_time - last_heartbeat_time >= self.heartbeat_interval:
+                            self.send_heartbeat()
+                            last_heartbeat_time = current_time
 
                 except Exception as game_error:
                     logging.error(f'❌ 自我对弈失败 (第{iteration}次迭代): {game_error}')
@@ -241,9 +326,19 @@ class CollectPipeline:
             logging.info('=' * 60)
             logging.info('收到停止信号，正在退出...')
             logging.info('=' * 60)
+
+            # 注销进程
+            if self.process_tracker:
+                self.unregister_process()
+
         except Exception as e:
             logging.critical(f'💥 致命错误: {e}')
             logging.critical(traceback.format_exc())
+
+            # 注销进程
+            if self.process_tracker:
+                self.unregister_process()
+
             raise
 
 

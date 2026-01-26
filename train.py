@@ -18,6 +18,11 @@ from mcts_pure import MCTS_Pure
 # 序列化工具 - MessagePack优化 (快15-25%)
 from utils.msgpack_serializer import load_with_auto_detect
 
+# GPU负载均衡 - 进程追踪和心跳
+if CONFIG['gpu_balancing']['enabled']:
+    from gpu_balance.process_tracker import ProcessTracker
+    from gpu_balance.config import get_config as get_gpu_balance_config
+
 if CONFIG['use_redis']:
     import my_redis, redis
     import zip_array
@@ -67,6 +72,15 @@ class TrainPipeline:
 
         if CONFIG['use_redis']:
             self.redis_cli = my_redis.get_redis_cli()
+
+        # GPU负载均衡 - 进程追踪器
+        if CONFIG['gpu_balancing']['enabled']:
+            gpu_config = get_gpu_balance_config()
+            self.process_tracker = ProcessTracker(config=gpu_config)
+            self.heartbeat_interval = 10.0  # 心跳间隔(秒)
+        else:
+            self.process_tracker = None
+
         self.buffer_size = maxlen=CONFIG['buffer_size']
         self.data_buffer = deque(maxlen=self.buffer_size)
         if init_model:
@@ -91,6 +105,74 @@ class TrainPipeline:
         # 初始化优化器
         if CONFIG['use_frame'] == 'pytorch':
             self.policy_value_net.init_optimizer()
+
+    def get_gpu_id(self) -> int:
+        """获取当前进程使用的GPU ID"""
+        if self.distributed:
+            # 分布式训练: 使用local_rank
+            return int(os.getenv('LOCAL_RANK', str(CONFIG['distributed']['local_rank'])))
+        else:
+            # 单GPU训练
+            cuda_devices = os.getenv('CUDA_VISIBLE_DEVICES', '0')
+            return int(cuda_devices.split(',')[0])
+
+    def register_process(self) -> bool:
+        """注册train进程到进程追踪器"""
+        if not self.process_tracker:
+            return True  # 未启用负载均衡时直接返回成功
+
+        try:
+            pid = os.getpid()
+            gpu_id = self.get_gpu_id()
+            success = self.process_tracker.register_process(
+                pid=pid,
+                gpu_id=gpu_id,
+                proc_type='train',
+                priority=6  # 训练任务优先级稍高
+            )
+            if self.rank == 0 and success:
+                print(f'✅ 进程已注册: PID={pid}, GPU={gpu_id}, 类型=train')
+            return success
+        except Exception as e:
+            if self.rank == 0:
+                print(f'注册进程失败: {e}')
+            return False
+
+    def send_heartbeat(self) -> bool:
+        """发送心跳到进程追踪器"""
+        if not self.process_tracker:
+            return True  # 未启用负载均衡时直接返回成功
+
+        try:
+            pid = os.getpid()
+            gpu_id = self.get_gpu_id()
+            success = self.process_tracker.update_heartbeat(
+                pid=pid,
+                iteration=getattr(self, 'iters', 0),
+                buffer_size=len(self.data_buffer) if self.data_buffer else 0,
+                status='running'
+            )
+            return success
+        except Exception as e:
+            if self.rank == 0:
+                print(f'发送心跳失败: {e}')
+            return False
+
+    def unregister_process(self) -> bool:
+        """注销train进程"""
+        if not self.process_tracker:
+            return True  # 未启用负载均衡时直接返回成功
+
+        try:
+            pid = os.getpid()
+            success = self.process_tracker.unregister_process(pid)
+            if self.rank == 0 and success:
+                print(f'✅ 进程已注销: PID={pid}')
+            return success
+        except Exception as e:
+            if self.rank == 0:
+                print(f'注销进程失败: {e}')
+            return False
 
 
     def policy_evaluate(self, n_games=10):
@@ -181,6 +263,12 @@ class TrainPipeline:
         """开始训练"""
         # 在分布式训练中，只让rank 0进行数据加载和模型保存
         try:
+            # 注册进程（如果启用GPU负载均衡）
+            if self.process_tracker:
+                self.register_process()
+
+            last_heartbeat_time = time.time()
+
             for i in range(self.game_batch_num):
                 # 只在rank 0加载数据
                 if self.rank == 0:
@@ -232,6 +320,13 @@ class TrainPipeline:
                         else:
                             print('不支持所选框架')
 
+                    # 发送心跳（如果启用GPU负载均衡）
+                    if self.process_tracker:
+                        current_time = time.time()
+                        if current_time - last_heartbeat_time >= self.heartbeat_interval:
+                            self.send_heartbeat()
+                            last_heartbeat_time = current_time
+
                 time.sleep(CONFIG['train_update_interval'])  # 每10分钟更新一次模型
 
                 if (i + 1) % self.check_freq == 0 and self.rank == 0:
@@ -258,9 +353,14 @@ class TrainPipeline:
                         checkpoint_path = 'models/current_policy_batch{}'.format(i + 1)
 
                     self.policy_value_net.save_model(checkpoint_path)
+
         except KeyboardInterrupt:
             if self.rank == 0:
                 print('\n\rquit')
+
+            # 注销进程
+            if self.process_tracker:
+                self.unregister_process()
 
 
 if CONFIG['use_frame'] == 'paddle':
